@@ -67,7 +67,7 @@ Now, we will add in the ability to send our metrics to AWS IoT. But first, we ne
 
 We will register the devices individually via the AWS Console. However, if you have a large number of devices to register, you may want to script it or use [Bulk Registration](https://docs.aws.amazon.com/iot/latest/developerguide/provision-template.html) via `aws-cli` or the AWS IoT Core Console. 
 
-> We are using `ap-south-1` aka Mumbai/Bombay. Feel free to use whichever region is closest to you.
+> We are using `us-east-1` aka N. Virginia for integration later with AWS Timestream which is not yet available in all regions.
 
 1. Click on `Create a single thing`
    1. Give your thing a name, e.g. `my_iot_device_1`
@@ -117,6 +117,11 @@ Because AWS IoT supports MQTT, we could use any MQTT client that supports X.509 
 
 ![AWS Console](2_aws_iot_console.png)
 
+## 3 - Simulating Multiple Devices
+
+This is an easy one, open up multiple terminals/tabs and start a separate process for updating the shadow for each `device`. Something like this:
+
+![Multiple Devices](3_multiple_shadow_updates.png)
 
 ## TODO
 - [x] Add LICENSE

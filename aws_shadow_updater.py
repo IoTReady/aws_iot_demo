@@ -18,9 +18,19 @@ def shadow_update_callback(payload, responseStatus, token):
         print("Update request " + token + " time out!")
     if responseStatus == "accepted":
         payloadDict = json.loads(payload)
-        print("On AWS IoT: ", payloadDict.get("state").get("desired"))
+        print("On AWS IoT: ", payloadDict.get("state").get("reported"))
     if responseStatus == "rejected":
         print("Update request " + token + " rejected!")
+
+def shadow_delete_callback(payload, responseStatus, token):
+    if responseStatus == "timeout":
+        print("Delete request " + token + " time out!")
+    if responseStatus == "accepted":
+        print("~~~~~~~~~~~~~~~~~~~~~~~")
+        print("Delete request with token: " + token + " accepted!")
+        print("~~~~~~~~~~~~~~~~~~~~~~~\n\n")
+    if responseStatus == "rejected":
+        print("Delete request " + token + " rejected!")
 
 def init_device_shadow_handler(args):
     host = args.get("host")
@@ -71,12 +81,15 @@ def init_device_shadow_handler(args):
     # Create a deviceShadow with persistent subscription
     deviceShadowHandler = myAWSIoTMQTTShadowClient.createShadowHandlerWithName(thingName, True)
 
+    # Delete existing shadow JSON doc
+    deviceShadowHandler.shadowDelete(shadow_delete_callback, 5)
+
     return deviceShadowHandler
 
 def update_device_shadow(handler, payload):
     json_payload = json.dumps({
         "state": {
-            "desired": payload
+            "reported": payload
         }
     })
     handler.shadowUpdate(json_payload, shadow_update_callback, 5)
