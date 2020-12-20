@@ -3,6 +3,7 @@
 import os
 import psutil
 import time
+from datetime import datetime
 import argparse
 
 def get_cpu_usage_pct():
@@ -68,7 +69,8 @@ def main(device_id):
         "cpu_freq": get_cpu_frequency(),
         "cpu_temp": get_cpu_temp(),
         "ram_usage": get_ram_usage(),
-        "ram_total": get_ram_total()
+        "ram_total": get_ram_total(),
+        "timestamp": int(datetime.now().timestamp())
     }
     # print metrics to stdout
     # later, we will replace this line and send the metrics to AWS IoT instead.

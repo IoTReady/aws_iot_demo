@@ -50,9 +50,13 @@ touch sysmon.py
    - `get_ram_usage`
    - `get_ram_total`
 2. Next, create a `main` function that calls each of these functions and populates a dictionary: `payload` and prints it.
+   1. We will also add a `timestamp` to the payload for use in visualisations later.
 3. Add a `while(1)` that calls this `main` function every 10 seconds.
 4. Add an argument parser so we can pass the `interval` and a `device_id` as command line arguments.
+5. Run the script with `python sysmon.py 10 my_iot_device_1`
 
+You should see output similar to:
+![sysmon.py output](1_python_script.png)
 ## TODO
 - [x] Add LICENSE
 - [ ] Add screenshots
