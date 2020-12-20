@@ -119,9 +119,84 @@ Because AWS IoT supports MQTT, we could use any MQTT client that supports X.509 
 
 ## 3 - Simulating Multiple Devices
 
+> We are done with almost all of the coding needed to get this working. 
+
 This is an easy one, open up multiple terminals/tabs and start a separate process for updating the shadow for each `device`. Something like this:
 
 ![Multiple Devices](3_multiple_shadow_updates.png)
+
+## 4 - Persisting Shadow Updates
+
+In order to visualise, and perhaps analyse, these metrics, we need to persist them in some form of database. Thankfully, AWS IoT has a [Rules Engine](https://docs.aws.amazon.com/iot/latest/developerguide/iot-rules.html) designed for just this purpose. The Rules Engine is essentially a message router with the ability to filter messages using an SQL syntax and send them to various destiations.
+
+Go to `AWS IoT Core -> Act -> Rules` to get started. Since we are trying to persist device shadows, our SQL filter will look like this:
+
+```sql
+SELECT 
+  state.reported.cpu_usage as cpu_usage,
+  state.reported.cpu_freq as cpu_freq,
+  state.reported.cpu_temp as cpu_temp,
+  state.reported.ram_usage as ram_usage,
+  state.reported.ram_total as ram_total,
+  state.reported.timestamp as timestamp,
+  newuuid() as id
+FROM '$aws/things/+/shadow/update'
+```
+
+Before we can save this rule, we will also need to add an `action`. Actions define what to do with the filtered messages. This depends on our choice of database. We will start by using the AWS PaaS offering for time series data, [Timestream DB](https://aws.amazon.com/timestream/).
+
+### Timestream DB
+
+As of this writing Timestream is only available in 4 regions. 
+
+![Timestream Regions](aws_timestream_regions.png)
+
+It's **essential** to create the DB in the same region as your AWS IoT endpoint as the Rules Engine does not, yet, support multiple regions for the built-in actions. _You could use a Lambda function to do this for you but that's more management and cost._
+
+We will create a `Standard` (empty) DB with the name `aws_iot_demo`: 
+
+![Create Timestream DB](4_create_timestream.png)
+
+We will also need a `table` to store our data, so let's do that too:
+
+![Create Timestream Table](4_create_timestream_table.png)
+
+Once this is done, we can return to the rule we were setting up and add the Action.
+
+Notes: 
+- The AWS IoT Rule Action for Timestream needs at least one [`dimension`](https://docs.aws.amazon.com/iot/latest/developerguide/timestream-rule-action.html) to be specified. Dimensions can be used for grouping and filtering incoming data. 
+- I used the following `key`:`value` pair using a substitution template - `device_id`: `${clientId()}` 
+- We are sending the device timestamp as part of the shadow update. I couldn't figure out how to use this as the timestamp in Timestream so I used `${timestamp()}` within the Rule Action. This generates a server timestamp.
+- You will also need to create or select an appropriate IAM role that lets AWS IoT to write to Timestream.
+- Timestream (like InfluxDB) creates separate rows for each metric so each shadow update creates 7 rows. 
+
+#### Add an error action
+To help debug if things don't go wrong (incorrect permissions, invalid data etc), we will add an Error Action that logs to CloudWatch Logs.
+
+Once we are done adding the actions, our rule will look something like this:
+
+![AWS IoT Rule Summary](4_aws_iot_action_summary.png)
+
+### Query Timestream
+
+Assuming we have started our simulators again, we should start to see data being stored in Timestream. Go over to AWS Console -> Timestream -> Tables ->  `aws_iot_demo` -> Query Table. Type in the following query:
+
+```sql
+-- Get the 20 most recently added data points in the past 15 minutes. You can change the time period if you're not continuously ingesting data
+SELECT * FROM "aws_iot_demo"."aws_iot_demo" WHERE time between ago(15m) and now() ORDER BY time DESC LIMIT 20
+```
+
+You should see output similar to the one below:
+
+![Timestream Query Output](4_timestream_query_output.png)
+
+If you do, you are in business and we can continue to visualisation. If you don't,
+
+- Check the Cloudwatch Logs for errors
+- Verify that your SQL syntax is correct - especially the topic
+- Ensure your Rule action has the right table and an appropriate IAM Role
+- Verify that your Device Shadow is getting updated by going over to AWS IoT -> Things -> my_iot_device_1 -> Shadow
+- Looking for errors if any on the terminal where you are running the script.
 
 ## TODO
 - [x] Add LICENSE

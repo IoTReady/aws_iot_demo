@@ -46,7 +46,7 @@ def get_metrics():
         "cpu_temp": sysmon.get_cpu_temp(),
         "ram_usage": sysmon.get_ram_usage(),
         "ram_total": sysmon.get_ram_total(),
-        "timestamp": int(datetime.now().timestamp())
+        "timestamp": int(datetime.now().timestamp()),
     }
     return metrics
 
