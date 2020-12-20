@@ -31,7 +31,29 @@ PyScript --> AWS_IoT --> S3 --> Athena --> Redash
 - `2_aws_iot` = Python script with AWS IoT integration (shadow updates)
 
 
+## 1_python_script
+
+We are going to adapt this excellent [blog post](https://www.pragmaticlinux.com/2020/12/monitor-cpu-and-ram-usage-in-python-with-psutil/) to create our system monitor script.
+
+```
+python3 -m venv venv
+source venv/bin/activate
+echo psutil==5.8.0 > requirements.txt
+pip install -r requirements.txt
+touch sysmon.py
+```
+
+1. Edit `sysmon.py` in your preferred text editor and add in the following functions from the blog post:
+   - `get_cpu_usage_pct`
+   - `get_cpu_frequency`
+   - `get_cpu_temp`
+   - `get_ram_usage`
+   - `get_ram_total`
+2. Next, create a `main` function that calls each of these functions and populates a dictionary: `payload` and prints it.
+3. Add a `while(1)` that calls this `main` function every 10 seconds.
+4. Add an argument parser so we can pass the `interval` and a `device_id` as command line arguments.
+
 ## TODO
-- [ ] Add LICENSE
+- [x] Add LICENSE
 - [ ] Add screenshots
 - [ ] Add motivation
