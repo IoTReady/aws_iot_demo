@@ -2,9 +2,6 @@
 
 import os
 import psutil
-import time
-from datetime import datetime
-import argparse
 
 def get_cpu_usage_pct():
     """
@@ -57,33 +54,3 @@ def get_ram_total():
     :rtype: int
     """
     return int(psutil.virtual_memory().total)
-
-def main(device_id):
-    """
-    Groups the metrics together into an object that we can print to the terminal and/or 
-    send to AWS IoT.
-    """
-    # Create dictionary with the metrics of interest
-    payload = {
-        "cpu_usage": get_cpu_usage_pct(),
-        "cpu_freq": get_cpu_frequency(),
-        "cpu_temp": get_cpu_temp(),
-        "ram_usage": get_ram_usage(),
-        "ram_total": get_ram_total(),
-        "timestamp": int(datetime.now().timestamp())
-    }
-    # print metrics to stdout
-    # later, we will replace this line and send the metrics to AWS IoT instead.
-    print("Metrics for {}".format(device_id))
-    print(payload)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Continuously monitor and report system metrics.')
-    parser.add_argument('interval', metavar='INTERVAL', type=int,
-                        help='reporting interval in seconds')
-    parser.add_argument('device_id', metavar='DEVICE_ID',
-                        help='id of this device')
-    args = parser.parse_args()
-    while(1):
-        main(args.device_id)
-        time.sleep(args.interval)
