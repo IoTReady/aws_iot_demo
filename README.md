@@ -1,8 +1,14 @@
 # AWS IoT Demo
 
+A metal-to-alerts example of how to build an IoT enabled monitoring solution using only AWS PaaS offerings. 
+
+# Why
+
+We have been doing this workflow for 5+ years now, much longer if you count fully custom tools. So have countless others. Yet, if you asked a new engineer to build this, you can wave goodbye to a few weeks of their effort as they navigate obtuse documentation and outdated StackOverflow answers. This is our attempt to document what's possible with PaaS tools in 2020. 
+
 ## What are we going to build?
 
-A metal-to-alerts example of how to build an IoT enabled monitoring solution using only AWS PaaS offerings. To achieve this, we will:
+To achieve this, we will:
 
 1. Write a Python script that monitors system metrics (CPU, Memory, Temperature, Fan)
    1. You could replace this with actual hardware, perhaps run this script on an Raspberry Pi or even send FreeRTOS metrics from ESP32 but we will save that for another day.
@@ -229,6 +235,8 @@ If you do see similar output, you are in business and we can continue to visuali
 
 ## Pause For Breath
 
+![Sunrise](sunrise.jpg)
+
 We have covered a lot of ground. So, let's pause and reflect. Here's what we have done so far:
 
 1. Created a Python script to monitor common system metrics.
@@ -250,13 +258,13 @@ Storage and visualisation are, in fact, two separate operations that need two di
 | Timestream | AWS QuickSight | See demo below |
 | Timestream | Grafana | See demo below |
 | DynamoDB | AWS QuickSight | Needs CSV export to S3 first |
-| DynamoDB | Redash | Works via DQL, see demo below |
-| ElasticSearch | Kibana | Works well, see demo below |
+| DynamoDB | Redash | Works but with limitations, demo in future post |
+| ElasticSearch | Kibana | Works well, demo in future post |
 | ElasticSearch | Grafana | Simpler to just use Kibana |
-| InfluxDB | InfluxDB UI | WIP |
+| InfluxDB | InfluxDB UI | Works well, demo in future post |
 | InfluxDB | Grafana | Simpler to just use the built-in UI |
 
-There are, of course, numerous other ways to do this. Our goal is to compare some of the more obvious options and, perhaps, pick one that works well.
+There are, of course, numerous other ways to do this. We will focus on the first two in that table.
 
 ### Timestream + AWS QuickSight
 
@@ -322,15 +330,41 @@ WHERE $__timeFilter
 GROUP BY device_id
 ```
 
+![Grafana Panel](grafana_create_panel.png)
+
 We are essentially doing the same as QuickSight by defining a `where` clause to filter by metric and creating a time series that is grouped by `device_id`. The one, big, difference is the Grafana allows you to add multiple such queries to a single visualisation chart (panel in Grafana speak). Duplicating this panel and making the mods necessary, we end up with a dashboard very similar to that in QuickSight.
 
 ![Grafana Timestream Dashboard](grafana_timestream_dashboard.png)
 
 Notice that we get dashboard wide time controls for free!
 
+### Alerts With Grafana
 
+Creating alerts with Grafana is surprisingly easy. Alerts use the same query as the panel and are created in the same UI. 
+
+![Grafana Create Alert](grafana_create_alert.png)
+
+By default, the alert is triggered on the average of the metric but you can change it a different calculation.
+
+![Grafana Alert Options](grafana_alert_calculation_options.png)
+
+If you have multiple queries on a panel, you can even use a combination of queries!
+
+Alerts can trigger notifications to various `channels` with built-in options for all the major chat apps, email and webhooks. For instance, if you wanted to trigger a notification within a mobile app, you would set up an API somewhere that will be triggered by a webhook configuration within Grafana. Your API is then responsible for notifying the mobile app.
+
+For more on Grafana alerts, check out [the docs](https://grafana.com/docs/grafana/latest/alerting/create-alerts/).
+
+## Conclusions
+
+Once you get around the verbose documentation, and refine your search skills, it's quite straightforward to create an end-to-end flow for most IoT use cases using purely platform-as-a-service offerings. 
+
+We have been running a deployment on AWS for a customer with ~46000 devices for 2+ years now, handling 15-20M messages monthly. All this for a fraction of the cost and attention this would need if we ran the infrastructure ourselves.
+
+That said, I do have a few reservations and will explore those in future posts.
+
+Good luck and reach out to us on [hello@iotready.co](mailto:hello@iotready.co) if you have any questions!
 
 ## TODO
 - [x] Add LICENSE
 - [x] Add screenshots
-- [ ] Add motivation
+- [x] Add motivation
