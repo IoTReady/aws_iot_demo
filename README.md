@@ -138,17 +138,9 @@ SELECT
   state.reported.cpu_freq as cpu_freq,
   state.reported.cpu_temp as cpu_temp,
   state.reported.ram_usage as ram_usage,
-  state.reported.ram_total as ram_total,
-  state.reported.timestamp as timestamp,
-  clientid() as device_id,
-  newuuid() as id
+  state.reported.ram_total as ram_total
 FROM '$aws/things/+/shadow/update'
 ```
-
-**Notes**
-
-- We are inserting the device_id using a [built-in SQL function](https://docs.aws.amazon.com/iot/latest/developerguide/iot-sql-functions.html) `clientid()`. We will need this for some of our Actions.
-- We are inserting a new field called id into our dataset for use with some specific data persistence options. We will discuss these later. For now, feel free to skip it.
 
 Before we can save this rule, we will also need to add an `action`. Actions define what to do with the filtered messages. This depends on our choice of database. 
 
@@ -156,11 +148,154 @@ Before we can save this rule, we will also need to add an `action`. Actions defi
 
 AWS IoT supports a large range of actions out of the box including CloudWatch, DynamoDB, ElasticSearch, Timestream DB and custom HTTP endpoints. See the [full list here](https://docs.aws.amazon.com/iot/latest/developerguide/iot-rule-actions.html).
 
-To confirm that our messages are coming through and we will be able to store them, we will use the `DynamoDBv2` action. We will also enable the `CloudWatch` action in case of errors.
+To confirm that our messages are coming through and we are able to store them, we will use the shiny, new time series database from AWS - Timestream. We will also enable the `CloudWatch` action in case of errors.
 
-#### DynamoDBv2
 
-This action stores the metrics (`cpu_usage`, `cpu_freq` etc) in separate columns in the table. Use the guided flow to create the `aws_iot_demo` table and assign permissions. Use `id` as the `primaryKey` and skip the `sortKey`.
+#### Timestream DB
+
+As of this writing Timestream is only available in 4 regions. 
+
+![Timestream Regions](aws_timestream_regions.png)
+
+It's **essential** to create the DB in the same region as your AWS IoT endpoint as the Rules Engine does not, yet, support multiple regions for the built-in actions. _You could use a Lambda function to do this for you but that's more management and cost.
+
+We will create a `Standard` (empty) DB with the name `aws_iot_demo`: 
+
+![Create Timestream DB](6_create_timestream_db.png)
+
+We will also need a `table` to store our data, so let's do that too:
+
+![Create Timestream Table](6_create_timestream_table.png)
+
+Once this is done, we can return to the rule we started creating earlier and add a new Action.
+
+Notes: 
+- The AWS IoT Rule Action for Timestream needs at least one [`dimension`](https://docs.aws.amazon.com/iot/latest/developerguide/timestream-rule-action.html) to be specified. Dimensions can be used for grouping and filtering incoming data. 
+- I used the following `key`:`value` pair using a substitution template - `device_id`: `${clientId()}`  
+- We are sending the device timestamp as part of the shadow update. If we include it as part of the `SELECT` query in the rule, Timestream will assume that `timestamp` is a measurement metric too. 
+  - Instead, we will ignore the device `timestamp` and use `${timestamp()}` as the time parameter within the Rule Action. This generates a server timestamp.
+- You will also need to create or select an appropriate IAM role that lets AWS IoT to write to Timestream.
+- Timestream creates separate rows for each metric so each shadow update creates 5 rows. 
+
+#### Query Timestream
+
+Assuming we have started our simulators again, we should start to see data being stored in Timestream. Go over to AWS Console -> Timestream -> Tables ->  `aws_iot_demo` -> Query Table. Type in the following query:
+
+```sql
+-- Get the 20 most recently added data points in the past 15 minutes. You can change the time period if you're not continuously ingesting data
+SELECT * FROM "aws_iot_demo"."aws_iot_demo" WHERE time between ago(15m) and now() ORDER BY time DESC LIMIT 20
+```
+
+You should see output similar to the one below:
+
+![Timestream Query Output](timestream_query_output.png)
+
+You will notice the separate rows for each metric. We will need a different query in order to combine the metrics into a single view, for instance for use with visualisation or analytics tools.
+
+```sql
+SELECT device_id, BIN(time, 1m) AS time_bin,
+    AVG(CASE WHEN measure_name = 'cpu_usage' THEN measure_value::double ELSE NULL END) AS avg_cpu_usage,
+    AVG(CASE WHEN measure_name = 'cpu_freq' THEN measure_value::bigint ELSE NULL END) AS avg_cpu_freq,
+    AVG(CASE WHEN measure_name = 'cpu_temp' THEN measure_value::double ELSE NULL END) AS avg_cpu_temp,
+    AVG(CASE WHEN measure_name = 'ram_usage' THEN measure_value::bigint ELSE NULL END) AS avg_ram_usage,
+    AVG(CASE WHEN measure_name = 'ram_total' THEN measure_value::bigint ELSE NULL END) AS avg_ram_total
+FROM "aws_iot_demo"."aws_iot_demo"
+WHERE time between ago(15m) and now()
+GROUP BY BIN(time, 1m), device_id
+ORDER BY time_bin desc
+```
+
+Your output should look something like this - 
+
+![Timestream Combined Output](timestream_combined_output.png)
+
+
+If you do see similar output, you are in business and we can continue to visualisation. If you don't,
+
+- Check the Cloudwatch Logs for errors
+- Verify that your SQL syntax is correct - especially the topic
+- Ensure your Rule action has the right table and an appropriate IAM Role
+- Verify that your Device Shadow is getting updated by going over to AWS IoT -> Things -> my_iot_device_1 -> Shadow
+- Looking for errors if any on the terminal where you are running the script.
+
+## Pause For Breath
+
+We have covered a lot of ground. So, let's pause and reflect. Here's what we have done so far:
+
+1. Created a Python script to monitor common system metrics.
+2. Hooked up this script to AWS IoT using the SDK and `Thing` certificates.
+3. Simulated running multiples of these devices with sending a `Shadow` update.
+4. Created a rule to persist these device shadows to `Timestream` and errors to `CloudWatch`.
+5. Verified that we are actually getting our data.
+
+Now, we only have the small matter of visualising our data and setting up alerts in case any of our metrics cross critical thresholds. 
+
+With a fresh cup of coffee, onwards...
+
+## 5 - Visualisation
+
+Storage and visualisation are, in fact, two separate operations that need two different software tools. However, these are often so tightly coupled that choice of one often dictates choice of the other. Here's a handy table that illustrates this with comments.
+
+| Storage | Visualisation | Comments  |
+| ---     | ---                   | ---       |
+| Timestream | AWS QuickSight | See demo below |
+| Timestream | Grafana | See demo below |
+| DynamoDB | AWS QuickSight | Needs CSV export to S3 first |
+| DynamoDB | Redash | Works via DQL, see demo below |
+| ElasticSearch | Kibana | Works well, see demo below |
+| ElasticSearch | Grafana | Simpler to just use Kibana |
+| InfluxDB | InfluxDB UI | WIP |
+| InfluxDB | Grafana | Simpler to just use the built-in UI |
+
+There are, of course, numerous other ways to do this. Our goal is to compare some of the more obvious options and, perhaps, pick one that works well.
+
+### Timestream + AWS QuickSight
+
+QuickSight is a managed BI tool from AWS. The [official documentation](https://docs.aws.amazon.com/timestream/latest/developerguide/QuickSight.html) to integrate Timestream with QuickSight is a little dense. However, it's pretty straightforward if you are using `us-east-1` as your region. 
+
+1. Within QuickSight, click on the user icon at the top right and then on `Manage QuickSight`.
+2. Here, go to `Security & Permissions` -> `QuickSight access to AWS services` and enable `Timestream` (see image below).
+3. Next, within QuickSight, click on `New Dataset` and select `Timestream`. Click on `Validate Connection` to ensure you have given the permissions and confirm.
+4. Upon confirmation, select `aws_iot_demo` from the discovered databases and select `aws_iot_demo` from the tables.
+5. Click on `Visualise`
+
+So far so good. I had to struggle for a while to understand how to get QuickSight to unpack the metrics from Timestream. Turns out, this is surprisingly easy if you follow this [tutorial video](https://www.youtube.com/watch?v=TzW4HWl-L8s) from AWS. Essentially,
+
+- Create multiple visualisations
+- For each visualisation, add a filter on `measure_name`. 
+- Click on `time` to add it to the X-axis. Change period to `Aggregrate: Minute`.
+- Click on `measure_value::bigint` or `measure_value::double` depending on the metric to add it to the Y-axis. Change to `Aggregate: Average`. 
+- Click on `device_id` to add separate lines for each device. This is added to `Color` in QuickSight.
+
+That's it! My dashboard looks like this - 
+
+![QuickSight Timestream Dashboard](timestream_quicksight_dashboard.png)
+
+QuickSight is a full-fledged business intelligence (BI) tool with the ability to integrate with multiple data sources. This makes it incredibly powerful as a tool to build our IoT visualisations as we could integrate with non-IoT data such as that from an ERP. More on this in a later post!
+
+### Timestream + Grafana
+
+AWS has an upcoming managed [Grafana service](https://aws.amazon.com/grafana/). Until then, we will use the managed service from [Grafana.com](https://grafana.com). You could also spin up Grafana locally or on a VM somewhere with the [docker image](https://grafana.com/docs/grafana/latest/installation/docker/).
+
+Assuming you have either signed up for Grafana Cloud or installed it locally, you should now:
+
+- Install the [Amazon Timestream plugin](https://grafana.com/grafana/plugins/grafana-timestream-datasource/installation)
+- Back in Grafana, add a new `Data Source` and search for `Timestream`. 
+- For authentication, we will use Access Key and Secret for a new IAM User.
+  - Back in AWS, create a new user with the ~`AmazonTimestreamReadOnlyAccess` policy attached~ `admin` rights. For some reason, Grafana would not connect to Timestream even with the `AmazonTimestreamFullAccess` policy attached.  
+- Once the keys are in place, click on `Save & Test`
+- Select `aws_iot_demo` in the `$_database` field to set up the default DB. Try as I might, I could not get the dropdown for `$_table` to populate.
+
+![Grafana Timestream Settings](6_grafana_timestream_settings.png)
+
+Now, click on `+ -> Dashboard` and `+ Add new panel` to get started.
+
+
+### DynamoDB For Storage
+
+The AWS IoT Rules Engine includes an action to store metrics (`cpu_usage`, `cpu_freq` etc) in separate columns in the table. Use the guided flow to create the `aws_iot_demo` table and assign permissions. Use `id` as the `primaryKey` and skip the `sortKey`.
+
+You will also need to modify the SQL query to insert this `id` field as well as the `timestamp`. 
 
 #### CloudWatch
 This action is triggered if/when there is an error while processing our rule. Again, follow the guided wizard to create a new `Log Group` and assign permissions.
@@ -177,37 +312,6 @@ Now, if you start the simulators again, you will see your DynamoDB table start t
 ![DynamoDB Table With IoT Data](5_aws_dynamodb.png)
 
 
-## Pause For Breath
-
-We have covered a lot of ground. So, let's pause and reflect. Here's what we have done so far:
-
-1. Created a Python script to monitor common system metrics.
-2. Hooked up this script to AWS IoT using the SDK and `Thing` certificates.
-3. Simulated running multiples of these devices with sending a `Shadow` update.
-4. Created a rule to persist these device shadows to `DynamoDB` and errors to `CloudWatch`.
-5. Verified that we are actually getting our data.
-
-
-Here's the kicker, though. DynamoDB is *not* a great service to use for storing time series data. Querying can be quite slow and rich queries are **very** inconvenient despite the presence of third party efforts like [DQL](https://dql.readthedocs.io/en/latest/). So, in the next couple of sections we will evaluate our options for *actually using* the data our devices are generating. 
-
-With a fresh cup of coffee, onwards...
-
-## 6 - Storage and Visualisation
-
-Storage and visualisation are, in fact, two separate operations that need two different software tools. However, these are often so tightly coupled that choice of one often dictates choice of the other. Here's a handy table that illustrates this with comments.
-
-| Storage | Visualisation | Comments  |
-| ---     | ---                   | ---       |
-| DynamoDB | AWS QuickSight | Needs CSV export to S3 first |
-| DynamoDB | Redash | Works via DQL, see demo below |
-| Timestream | AWS QuickSight | Fidgety, see demo below |
-| Timestream | Grafana | Buggy?, see demo below |
-| ElasticSearch | Kibana | Works well, see demo below |
-| ElasticSearch | Grafana | Simpler to just use Kibana |
-| InfluxDB | InfluxDB UI | WIP |
-| InfluxDB | Grafana | Simpler to just use the built-in UI |
-
-There are, of course, numerous other ways to do this. Our goal is to compare some of the more obvious options and, perhaps, pick one that works well.
 
 ### DyanamoDB + ReDash
 
@@ -248,88 +352,6 @@ You can create charts for the other metrics too and add them all to a Dashboard:
 ![Redash Dashboard](6_redash_dashboard.png)
 
 Nice! Our first IoT dashboard that can refresh in realtime :-). If you use the cloud version of Redash and don't mind the slow query speeds with DynamoDB, you have a highly scalable end-to-end solution! However, this setup will get slower with time and very expensive unless you archive old data within DynamoDB.
-
-### Timestream DB + QuickSight / Grafana
-
-As of this writing Timestream is only available in 4 regions. 
-
-![Timestream Regions](aws_timestream_regions.png)
-
-It's **essential** to create the DB in the same region as your AWS IoT endpoint as the Rules Engine does not, yet, support multiple regions for the built-in actions. _You could use a Lambda function to do this for you but that's more management and cost.
-
-We will create a `Standard` (empty) DB with the name `aws_iot_demo`: 
-
-![Create Timestream DB](6_create_timestream_db.png)
-
-We will also need a `table` to store our data, so let's do that too:
-
-![Create Timestream Table](6_create_timestream_table.png)
-
-Once this is done, we can return to the rule we set up earlier and add a new Action.
-
-Notes: 
-- The AWS IoT Rule Action for Timestream needs at least one [`dimension`](https://docs.aws.amazon.com/iot/latest/developerguide/timestream-rule-action.html) to be specified. Dimensions can be used for grouping and filtering incoming data. 
-- I used the following `key`:`value` pair using a substitution template - `device_id`: `${clientId()}` 
-  - This conflicts with the `device_id` we are adding in the SQL query. So, either remove that or use a different key name here. 
-- We are sending the device timestamp as part of the shadow update. I couldn't figure out how to use this as the timestamp in Timestream so I used `${timestamp()}` within the Rule Action. This generates a server timestamp.
-- You will also need to create or select an appropriate IAM role that lets AWS IoT to write to Timestream.
-- Timestream (like InfluxDB) creates separate rows for each metric so each shadow update creates 7 rows. 
-
-#### Query Timestream
-
-Assuming we have started our simulators again, we should start to see data being stored in Timestream. Go over to AWS Console -> Timestream -> Tables ->  `aws_iot_demo` -> Query Table. Type in the following query:
-
-```sql
--- Get the 20 most recently added data points in the past 15 minutes. You can change the time period if you're not continuously ingesting data
-SELECT * FROM "aws_iot_demo"."aws_iot_demo" WHERE time between ago(15m) and now() ORDER BY time DESC LIMIT 20
-```
-
-You should see output similar to the one below:
-
-![Timestream Query Output](6_timestream_query_output.png)
-
-If you do, you are in business and we can continue to visualisation. If you don't,
-
-- Check the Cloudwatch Logs for errors
-- Verify that your SQL syntax is correct - especially the topic
-- Ensure your Rule action has the right table and an appropriate IAM Role
-- Verify that your Device Shadow is getting updated by going over to AWS IoT -> Things -> my_iot_device_1 -> Shadow
-- Looking for errors if any on the terminal where you are running the script.
-
-#### Dashboards Using AWS Quicksight
-
-Quicksight is a managed BI tool from AWS. The [official documentation](https://docs.aws.amazon.com/timestream/latest/developerguide/Quicksight.html) to integrate Timestream with Quicksight is a little dense. However, it's pretty straightforward if you are using `us-east-1` as your region. 
-
-1. Within Quicksight, click on the user icon at the top right and then on `Manage Quicksight`.
-2. Here, go to `Security & Permissions` -> `Quicksight access to AWS services` and enable `Timestream` (see image below).
-3. Next, within Quicksight, click on `New Dataset` and select `Timestream`. Click on `Validate Connection` to ensure you have given the permissions and confirm.
-4. Upon confirmation, select `aws_iot_demo` from the discovered databases and select `aws_iot_demo` from the tables.
-
-So far so good. This is where it gets quite complex. This is what my dashboard looks like after about 5-10 minutes of fiddling:
-
-![QuickSight Timestream Dashboard](6_timestream_quicksight_dashboard.png)
-
-Simple bar charts are easy to. However, I believe, to get time series charts working we will need to use a custom query instead of the `aws_iot_demo` table in `Step 4` above. The [documentation and examples](https://docs.aws.amazon.com/timestream/latest/developerguide/sample-queries.iot-scenarios.html#sample-queries.iot-scenarios.example-queries) for complex Timeseries queries are a little involved, so I might return to this later.
-
-
-#### Dashboards & Alerts Using Grafana
-
-AWS has an upcoming managed [Grafana service](https://aws.amazon.com/grafana/). Until then, we will use the managed service from [Grafana.com](https://grafana.com). You could also spin up Grafana locally or on a VM somewhere with the [docker image](https://grafana.com/docs/grafana/latest/installation/docker/).
-
-Assuming you have either signed up for Grafana Cloud or installed it locally, you should now:
-
-- Install the [Amazon Timestream plugin](https://grafana.com/grafana/plugins/grafana-timestream-datasource/installation)
-- Back in Grafana, add a new `Data Source` and search for `Timestream`. 
-- For authentication, we will use Access Key and Secret for a new IAM User.
-  - Back in AWS, create a new user with the ~`AmazonTimestreamReadOnlyAccess` policy attached~ `admin` rights. For some reason, Grafana would not connect to Timestream even with the `AmazonTimestreamFullAccess` policy attached.  
-- Once the keys are in place, click on `Save & Test`
-- Select `aws_iot_demo` in the `$_database` field to set up the default DB. Try as I might, I could not get the dropdown for `$_table` to populate.
-
-![Grafana Timestream Settings](6_grafana_timestream_settings.png)
-
-Now, click on `+ -> Dashboard` and `+ Add new panel` to get started.
-
-
 ## TODO
 - [x] Add LICENSE
 - [x] Add screenshots
