@@ -44,7 +44,7 @@ touch sysmon.py
 5. Run the script with `python sysmon.py 10 my_iot_device_1`
 
 You should see output similar to:
-![sysmon.py output](1_python_script.png)
+![sysmon.py output](python_script.png)
 
 
 ## 2 - AWS IoT Integration
@@ -101,9 +101,9 @@ Because AWS IoT supports MQTT, we could use any MQTT client that supports X.509 
   - For good measure, we are also verifying that the certificates actually exist.
 - With this done, we stitch our two modules `sysmon.py` and `aws_shadow_updater.py` together and start publishing updates. If all goes well, you should see the following in your terminal and your AWS Console (go to Thing -> Shadows -> Classic Shadow)
 
-![Terminal Output](2_aws_iot_terminal.png)
+![Terminal Output](aws_iot_terminal.png)
 
-![AWS Console](2_aws_iot_console.png)
+![AWS Console](aws_iot_console.png)
 
 ## 3 - Simulating Multiple Devices
 
@@ -111,7 +111,7 @@ Because AWS IoT supports MQTT, we could use any MQTT client that supports X.509 
 
 This is an easy one, open up multiple terminals/tabs and start a separate process for updating the shadow for each `device`. Something like this:
 
-![Multiple Devices](3_multiple_shadow_updates.png)
+![Multiple Devices](multiple_shadow_updates.png)
 
 ## 4 - Persisting Shadow Updates
 
@@ -169,6 +169,8 @@ We will also need a `table` to store our data, so let's do that too:
 
 Once this is done, we can return to the rule we started creating earlier and add a new Action.
 
+![AWS IoT Action - Timestream](aws_iot_action_timestream.png)
+
 Notes: 
 - The AWS IoT Rule Action for Timestream needs at least one [`dimension`](https://docs.aws.amazon.com/iot/latest/developerguide/timestream-rule-action.html) to be specified. Dimensions can be used for grouping and filtering incoming data. 
 - I used the following `key`:`value` pair using a substitution template - `device_id`: `${clientId()}`  
@@ -177,7 +179,14 @@ Notes:
 - You will also need to create or select an appropriate IAM role that lets AWS IoT to write to Timestream.
 - Timestream creates separate rows for each metric so each shadow update creates 5 rows. 
 
-#### Query Timestream
+#### CloudWatch
+This action is triggered if/when there is an error while processing our rule. Again, follow the guided wizard to create a new `Log Group` and assign permissions.
+
+At the end, your rule should look something like this:
+
+![AWS IoT Rule Summary](aws_iot_action_summary.png)
+
+### Query Timestream
 
 Assuming we have started our simulators again, we should start to see data being stored in Timestream. Go over to AWS Console -> Timestream -> Tables ->  `aws_iot_demo` -> Query Table. Type in the following query:
 
@@ -234,7 +243,7 @@ With a fresh cup of coffee, onwards...
 
 ## 5 - Visualisation
 
-Storage and visualisation are, in fact, two separate operations that need two different software tools. However, these are often so tightly coupled that choice of one often dictates choice of the other. Here's a handy table that illustrates this with comments.
+Storage and visualisation are, in fact, two separate operations that need two different software tools. However, these are often so tightly coupled that choice of one often dictates choice of the other. Here's a handy table that illustrates this.
 
 | Storage | Visualisation | Comments  |
 | ---     | ---                   | ---       |
@@ -265,19 +274,31 @@ So far so good. I had to struggle for a while to understand how to get QuickSigh
 - For each visualisation, add a filter on `measure_name`. 
 - Click on `time` to add it to the X-axis. Change period to `Aggregrate: Minute`.
 - Click on `measure_value::bigint` or `measure_value::double` depending on the metric to add it to the Y-axis. Change to `Aggregate: Average`. 
+  - In our case, only `cpu_usage` is a `double`.
 - Click on `device_id` to add separate lines for each device. This is added to `Color` in QuickSight.
 
 That's it! My dashboard looks like this - 
 
 ![QuickSight Timestream Dashboard](timestream_quicksight_dashboard.png)
 
-QuickSight is a full-fledged business intelligence (BI) tool with the ability to integrate with multiple data sources. This makes it incredibly powerful as a tool to build our IoT visualisations as we could integrate with non-IoT data such as that from an ERP. More on this in a later post!
+QuickSight is a full-fledged business intelligence (BI) tool with the ability to integrate with multiple data sources. QuickSight also has built-in anomaly detection. This makes it an incredibly powerful tool to use for IoT visualisations and analysis. We could even bring in non-IoT data such as that from an ERP. More on this in a later post!
+
+However, QuickSight:
+- Does not support alerts
+- Does not support calculations
+- Has limited visualisations
+- Does not support dashboard embeds, e.g. in a webpage
+- Charges [per user](https://aws.amazon.com/quicksight/pricing/?nc=sn&loc=4)
+
+Mind you, the AWS IoT rules engine can be used quite easily for alerts so you *don't* really need alerts in a separate tool. Having said that...
 
 ### Timestream + Grafana
 
-AWS has an upcoming managed [Grafana service](https://aws.amazon.com/grafana/). Until then, we will use the managed service from [Grafana.com](https://grafana.com). You could also spin up Grafana locally or on a VM somewhere with the [docker image](https://grafana.com/docs/grafana/latest/installation/docker/).
+[Grafana](https://grafana.com/) has long been a favourite of anyone looking to create beautiful, lightweight dashboards. Grafana integrates with a zillion data sources via input plugins and has numerous visualisations via output plugins. Grafana only does visualisations and alerts but does it really well. There are open source and enterprise editions available.
 
-Assuming you have either signed up for Grafana Cloud or installed it locally, you should now:
+AWS has an upcoming managed [Grafana service](https://aws.amazon.com/grafana/). Until then, we will use the managed service from [Grafana Cloud](https://grafana.com). You could also spin up Grafana locally or on a VM somewhere with the [docker image](https://grafana.com/docs/grafana/latest/installation/docker/).
+
+There's a [video tutorial](https://www.youtube.com/watch?v=pilkz645cs4) available but you will need to adapt a fair bit to our example. Assuming you have either signed up for Grafana Cloud or installed it locally, you should now:
 
 - Install the [Amazon Timestream plugin](https://grafana.com/grafana/plugins/grafana-timestream-datasource/installation)
 - Back in Grafana, add a new `Data Source` and search for `Timestream`. 
@@ -290,68 +311,25 @@ Assuming you have either signed up for Grafana Cloud or installed it locally, yo
 
 Now, click on `+ -> Dashboard` and `+ Add new panel` to get started.
 
+Unlike QuickSight, Grafana allows you to build queries using **SQL**. So, for our first panel, let's create a CPU Usage chart with the following query:
 
-### DynamoDB For Storage
+```sql
+SELECT device_id,
+    CREATE_TIME_SERIES(time, measure_value::double) as avg_cpu_usage
+FROM $__database.$__table
+WHERE $__timeFilter
+    AND measure_name = '$__measure'
+GROUP BY device_id
+```
 
-The AWS IoT Rules Engine includes an action to store metrics (`cpu_usage`, `cpu_freq` etc) in separate columns in the table. Use the guided flow to create the `aws_iot_demo` table and assign permissions. Use `id` as the `primaryKey` and skip the `sortKey`.
+We are essentially doing the same as QuickSight by defining a `where` clause to filter by metric and creating a time series that is grouped by `device_id`. The one, big, difference is the Grafana allows you to add multiple such queries to a single visualisation chart (panel in Grafana speak). Duplicating this panel and making the mods necessary, we end up with a dashboard very similar to that in QuickSight.
 
-You will also need to modify the SQL query to insert this `id` field as well as the `timestamp`. 
+![Grafana Timestream Dashboard](grafana_timestream_dashboard.png)
 
-#### CloudWatch
-This action is triggered if/when there is an error while processing our rule. Again, follow the guided wizard to create a new `Log Group` and assign permissions.
-
-At the end, your rule should look something like this:
-
-![AWS IoT Rule Summary](4_aws_iot_action_summary.png)
-
-
-## 5 - Verification
-
-Now, if you start the simulators again, you will see your DynamoDB table start to fill up. Here's what it should look like:
-
-![DynamoDB Table With IoT Data](5_aws_dynamodb.png)
+Notice that we get dashboard wide time controls for free!
 
 
 
-### DyanamoDB + ReDash
-
-Since we already have data in DynamoDB, let's try and use it for querying and visualisations. We will use [Redash](https://redash.io/), an open source Python based BI tool. There's a cloud hosted version but I already have it running locally via Docker so I am going to use that instead. I won't cover setting up Redash locally, you can follow their [installation instructions](https://redash.io/help/open-source/setup#docker) and or just sign up for a cloud trial. FWIW, I am on version `8.0.0+b32245`.
-
-Connecting to DynamoDB is pretty straightforward:
-
-1. Add a `New Data Source` and search for `DynamoDB (with DQL)`
-2. Enter a `Name`, `Access Key`, `Region` and `Secret Key`.
-3. Save and click on `Test Connection` to ensure you are connected.
-
-![Redash DynamoDB Data Source](6_redash_dynamodb.png)
-
-Next, create a `New Query`. The simplest query to try out is `SCAN * FROM aws_iot_demo;`. In case you are wondering the `SCAN` keyword, check out the [DQL documentation](https://dql.readthedocs.io/en/latest/topics/queries/scan.html). 
-
-> Despite creating indices on the DynamoDB table and following the DQL documentation, I could not get `SELECT` working.
-
-This query will return ALL the data from our table. Careful when running on large tables! There *may* be some row limits imposed by either DQL or the AWS API. However, `SCAN` operations are quite slow as you can see from the screenshot below.
-
-![Redash DynamoDB Query](6_redash_dynamodb_query.png)
-
-Nonetheless, we have our data and we can quickly visualise it:
-
-1. Click on `New Visualisation`. 
-2. Select `Line` for `Chart Type`
-3. Select `timestamp` for `X Column` and also, on the `X Axis` tab, change the `Scale` to `Datetime` from the default `Auto Detect`.
-4. Select `cpu_usage` for `Y Columns` and `device_id` for `Group By`. Ensure `Show Legend` is checked.
-5. Play around with the other settings and see what you like. 
-
-Once you are done, you will see something that looks like this - 
-
-![Redash Chart](6_redash_chart.png)
-
-Uh, oh. Redash thinks our `timestamp` belongs to January, 1970. This is because Redash is expecting `milliseconds` and we are sending `seconds`. We could change our script and send milliseconds instead or even modify the timestamp within our AWS IoT Rule SQL query. However, I am trying to configure this within Redash. If/once I am able to figure this out, I will update this section.
-
-You can create charts for the other metrics too and add them all to a Dashboard:
-
-![Redash Dashboard](6_redash_dashboard.png)
-
-Nice! Our first IoT dashboard that can refresh in realtime :-). If you use the cloud version of Redash and don't mind the slow query speeds with DynamoDB, you have a highly scalable end-to-end solution! However, this setup will get slower with time and very expensive unless you archive old data within DynamoDB.
 ## TODO
 - [x] Add LICENSE
 - [x] Add screenshots
