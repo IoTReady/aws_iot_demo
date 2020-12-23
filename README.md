@@ -50,7 +50,7 @@ touch sysmon.py
 5. Run the script with `python sysmon.py 10 my_iot_device_1`
 
 You should see output similar to:
-![sysmon.py output](python_script.png)
+![sysmon.py output](images/python_script.png)
 
 
 ## 2 - AWS IoT Integration
@@ -91,7 +91,7 @@ Now repeat this a couple more times so we have a few things. I am setting up 3 d
 
 Finally, we will rename our certificates to match our thing names so that it's easier to script together. For instance, I am using the rename utility to bulk rename my certificates:
 
-![Bulk renaming certs](rename_certs.png)
+![Bulk renaming certs](images/rename_certs.png)
 
 ### Adding the AWS IoT SDK
 
@@ -107,9 +107,9 @@ Because AWS IoT supports MQTT, we could use any MQTT client that supports X.509 
   - For good measure, we are also verifying that the certificates actually exist.
 - With this done, we stitch our two modules `sysmon.py` and `aws_shadow_updater.py` together and start publishing updates. If all goes well, you should see the following in your terminal and your AWS Console (go to Thing -> Shadows -> Classic Shadow)
 
-![Terminal Output](aws_iot_terminal.png)
+![Terminal Output](images/aws_iot_terminal.png)
 
-![AWS Console](aws_iot_console.png)
+![AWS Console](images/aws_iot_console.png)
 
 ## 3 - Simulating Multiple Devices
 
@@ -117,11 +117,11 @@ Because AWS IoT supports MQTT, we could use any MQTT client that supports X.509 
 
 This is an easy one, open up multiple terminals/tabs and start a separate process for updating the shadow for each `device`. Something like this:
 
-![Multiple Devices](multiple_shadow_updates.png)
+![Multiple Devices](images/multiple_shadow_updates.png)
 
 ## 4 - Persisting Shadow Updates
 
-In order to visualise, and perhaps analyse, these metrics, we need to persist them in some form of database. Thankfully, AWS IoT has a [Rules Engine](https://docs.aws.amazon.com/iot/latest/developerguide/iot-rules.html) designed for just this purpose. The Rules Engine is essentially a message router with the ability to filter messages using an SQL syntax and send them to various destiations.
+In order to visualise, and perhaps analyse, these metrics, we need to persist them in some form of database. Thankfully, AWS IoT has a [Rules Engine](https://docs.aws.amazon.com/iot/latest/developerguide/iot-rules.html) designed for just this purpose. The Rules Engine is essentially a message router with the ability to filter messages using an SQL syntax and send them to various destinations.
 
 Go to `AWS IoT Core -> Act -> Rules` to get started. 
 
@@ -161,21 +161,21 @@ To confirm that our messages are coming through and we are able to store them, w
 
 As of this writing Timestream is only available in 4 regions. 
 
-![Timestream Regions](aws_timestream_regions.png)
+![Timestream Regions](images/aws_timestream_regions.png)
 
 It's **essential** to create the DB in the same region as your AWS IoT endpoint as the Rules Engine does not, yet, support multiple regions for the built-in actions. _You could use a Lambda function to do this for you but that's more management and cost.
 
 We will create a `Standard` (empty) DB with the name `aws_iot_demo`: 
 
-![Create Timestream DB](6_create_timestream_db.png)
+![Create Timestream DB](images/create_timestream_db.png)
 
 We will also need a `table` to store our data, so let's do that too:
 
-![Create Timestream Table](6_create_timestream_table.png)
+![Create Timestream Table](images/create_timestream_table.png)
 
 Once this is done, we can return to the rule we started creating earlier and add a new Action.
 
-![AWS IoT Action - Timestream](aws_iot_action_timestream.png)
+![AWS IoT Action - Timestream](images/aws_iot_action_timestream.png)
 
 Notes: 
 - The AWS IoT Rule Action for Timestream needs at least one [`dimension`](https://docs.aws.amazon.com/iot/latest/developerguide/timestream-rule-action.html) to be specified. Dimensions can be used for grouping and filtering incoming data. 
@@ -190,7 +190,7 @@ This action is triggered if/when there is an error while processing our rule. Ag
 
 At the end, your rule should look something like this:
 
-![AWS IoT Rule Summary](aws_iot_action_summary.png)
+![AWS IoT Rule Summary](images/aws_iot_action_summary.png)
 
 ### Query Timestream
 
@@ -203,7 +203,7 @@ SELECT * FROM "aws_iot_demo"."aws_iot_demo" WHERE time between ago(15m) and now(
 
 You should see output similar to the one below:
 
-![Timestream Query Output](timestream_query_output.png)
+![Timestream Query Output](images/timestream_query_output.png)
 
 You will notice the separate rows for each metric. We will need a different query in order to combine the metrics into a single view, for instance for use with visualisation or analytics tools.
 
@@ -222,7 +222,7 @@ ORDER BY time_bin desc
 
 Your output should look something like this - 
 
-![Timestream Combined Output](timestream_combined_output.png)
+![Timestream Combined Output](images/timestream_combined_output.png)
 
 
 If you do see similar output, you are in business and we can continue to visualisation. If you don't,
@@ -235,7 +235,7 @@ If you do see similar output, you are in business and we can continue to visuali
 
 ## Pause For Breath
 
-![Sunrise](sunrise.jpg)
+![Sunrise](images/sunrise.jpg)
 
 We have covered a lot of ground. So, let's pause and reflect. Here's what we have done so far:
 
@@ -287,7 +287,7 @@ So far so good. I had to struggle for a while to understand how to get QuickSigh
 
 That's it! My dashboard looks like this - 
 
-![QuickSight Timestream Dashboard](timestream_quicksight_dashboard.png)
+![QuickSight Timestream Dashboard](images/timestream_quicksight_dashboard.png)
 
 QuickSight is a full-fledged business intelligence (BI) tool with the ability to integrate with multiple data sources. QuickSight also has built-in anomaly detection. This makes it an incredibly powerful tool to use for IoT visualisations and analysis. We could even bring in non-IoT data such as that from an ERP. More on this in a later post!
 
@@ -315,7 +315,7 @@ There's a [video tutorial](https://www.youtube.com/watch?v=pilkz645cs4) availabl
 - Once the keys are in place, click on `Save & Test`
 - Select `aws_iot_demo` in the `$_database` field to set up the default DB. Try as I might, I could not get the dropdown for `$_table` to populate.
 
-![Grafana Timestream Settings](6_grafana_timestream_settings.png)
+![Grafana Timestream Settings](images/grafana_timestream_settings.png)
 
 Now, click on `+ -> Dashboard` and `+ Add new panel` to get started.
 
@@ -330,11 +330,11 @@ WHERE $__timeFilter
 GROUP BY device_id
 ```
 
-![Grafana Panel](grafana_create_panel.png)
+![Grafana Panel](images/grafana_create_panel.png)
 
 We are essentially doing the same as QuickSight by defining a `where` clause to filter by metric and creating a time series that is grouped by `device_id`. The one, big, difference is the Grafana allows you to add multiple such queries to a single visualisation chart (panel in Grafana speak). Duplicating this panel and making the mods necessary, we end up with a dashboard very similar to that in QuickSight.
 
-![Grafana Timestream Dashboard](grafana_timestream_dashboard.png)
+![Grafana Timestream Dashboard](images/grafana_timestream_dashboard.png)
 
 Notice that we get dashboard wide time controls for free!
 
@@ -342,11 +342,11 @@ Notice that we get dashboard wide time controls for free!
 
 Creating alerts with Grafana is surprisingly easy. Alerts use the same query as the panel and are created in the same UI. 
 
-![Grafana Create Alert](grafana_create_alert.png)
+![Grafana Create Alert](images/grafana_create_alert.png)
 
 By default, the alert is triggered on the average of the metric but you can change it a different calculation.
 
-![Grafana Alert Options](grafana_alert_calculation_options.png)
+![Grafana Alert Options](images/grafana_alert_calculation_options.png)
 
 If you have multiple queries on a panel, you can even use a combination of queries!
 
